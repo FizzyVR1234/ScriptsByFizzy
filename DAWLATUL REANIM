@@ -2177,7 +2177,7 @@ table.sort(animDB,function(a,b) return a.n<b.n end)
 --  GUI CONSTANTS
 -- ══════════════════════════════════════════════════════════════════════════════
 local CARD_W   = 310
-local CARD_H   = 560
+local CARD_H   = 648
 local HEADER_H = 28
 local ROW_H    = 30
 local LIST_H   = ROW_H*7+8
@@ -2198,6 +2198,7 @@ local customCtr  = 0
 local FAV_FILE   = "dawlatul_favorites.txt"
 local KEYS_FILE  = "dawlatul_keybinds.txt"
 local CUSTOM_FILE= "dawlatul_custom.txt"
+local PRESET_FILE= "dawlatul_presets.txt"
 
 local function safeWrite(path,data)
     local ok,err=pcall(writefile,path,tostring(data))
@@ -2265,7 +2266,56 @@ local function applyPendingKeybinds()
     end
 end
 
-loadFavorites(); loadKeybinds(); loadCustom()
+-- Speed preset state: 5 presets, each has a speed value (0=unset) and an optional keybind
+local speedPresets = {
+    {speed=0, key=nil, _getKey=nil, _setKey=nil},
+    {speed=0, key=nil, _getKey=nil, _setKey=nil},
+    {speed=0, key=nil, _getKey=nil, _setKey=nil},
+    {speed=0, key=nil, _getKey=nil, _setKey=nil},
+    {speed=0, key=nil, _getKey=nil, _setKey=nil},
+}
+local savedActivePreset = nil  -- persisted active preset index (1-5 or nil)
+local function savePresets()
+    local lines={}
+    -- first line: active preset index (0 = none)
+    lines[#lines+1]=tostring(savedActivePreset or 0)
+    for i,p in ipairs(speedPresets) do
+        local keyName = p._getKey and p._getKey() and p._getKey().Name or ""
+        lines[#lines+1]=tostring(p.speed).."|"..keyName
+    end
+    safeWrite(PRESET_FILE,table.concat(lines,"\n"))
+end
+local pendingPresetKeys={}
+local function loadPresets()
+    local data=safeRead(PRESET_FILE); if not data or data=="" then return end
+    local lines={}
+    for line in data:gmatch("[^\n]+") do lines[#lines+1]=line end
+    if #lines==0 then return end
+    -- check if first line is the active preset header (no | separator = just a number)
+    local lineStart = 1
+    local firstLine = lines[1]
+    if not firstLine:find("|") then
+        -- new format: first line is active preset index
+        local ap = tonumber(firstLine)
+        if ap and ap >= 1 and ap <= 5 then
+            savedActivePreset = ap
+        else
+            savedActivePreset = nil
+        end
+        lineStart = 2
+    end
+    -- read preset entries
+    for idx = lineStart, #lines do
+        local i = idx - lineStart + 1
+        local line = lines[idx]
+        local spd,keyName=line:match("^([^|]+)|(.*)$")
+        if spd and speedPresets[i] then
+            speedPresets[i].speed=math.clamp(tonumber(spd) or 0,0,10)
+            if keyName and keyName~="" then pendingPresetKeys[i]=keyName end
+        end
+    end
+end
+loadFavorites(); loadKeybinds(); loadCustom(); loadPresets()
 
 -- ══════════════════════════════════════════════════════════════════════════════
 --  GUI SETUP
@@ -2596,12 +2646,14 @@ do
     Instance.new("UICorner",knob).CornerRadius=UDim.new(1,0)
     local function s2a(s) return math.clamp((s-SPEED_MIN)/(SPEED_MAX-SPEED_MIN),0,1) end
     local function a2s(a) return math.floor((SPEED_MIN+a*(SPEED_MAX-SPEED_MIN))*10+0.5)/10 end
-    applySpeed=function(s)
+    applySpeed=function(s, fromPreset)
         s=math.clamp(math.floor((tonumber(s) or DEFAULT_SPEED)*10+0.5)/10,SPEED_MIN,SPEED_MAX)
         curSpeed=s; API.set_speed(s)
         local a=s2a(s)
         fill.Size=UDim2.new(a,0,1,0); knobRing.Position=UDim2.new(a,0,0.5,0)
         speedValueLabel.Text=tostring(s).."x"
+        -- deselect active preset highlight when speed is changed manually (not from preset)
+        if not fromPreset and _G._dawlatulPresetDeselect then _G._dawlatulPresetDeselect() end
     end
     applySpeed(DEFAULT_SPEED)
     resetBtn.MouseButton1Click:Connect(function() applySpeed(DEFAULT_SPEED) end)
@@ -2622,6 +2674,269 @@ do
     UserInputService.InputEnded:Connect(function(inp)
         if inp.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end
     end)
+end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+--  4. SPEED PRESETS
+-- ══════════════════════════════════════════════════════════════════════════════
+do
+    -- Panel sizing
+    -- Row 1: 5 preset pills  height=26
+    -- Row 2: 5 keybind btns  height=22
+    -- padding top/bottom=8, gap between rows=6
+    -- total panel height = 8 + 26 + 6 + 22 + 8 = 70
+    local PRESET_PANEL_H = 70
+    local NUM_PRESETS    = 5
+    local INNER_PAD      = 8   -- left+right padding inside panel
+    local GAP            = 4   -- gap between preset cells
+    local PANEL_W        = CARD_W - 20  -- 290px
+    local CELL_W         = math.floor((PANEL_W - INNER_PAD*2 - GAP*(NUM_PRESETS-1)) / NUM_PRESETS)  -- 50px each
+
+    -- section label
+    makeSectionLabel("SPEED PRESETS")
+
+    local pwrap=Instance.new("Frame"); pwrap.Size=UDim2.new(1,0,0,PRESET_PANEL_H+6)
+    pwrap.BackgroundTransparency=1; pwrap.BorderSizePixel=0; pwrap.LayoutOrder=nO(); pwrap.Parent=body
+    local ppanel=Instance.new("Frame"); ppanel.Size=UDim2.new(1,-20,0,PRESET_PANEL_H)
+    ppanel.Position=UDim2.new(0,10,0,3); ppanel.BackgroundColor3=Color3.fromRGB(18,18,30)
+    ppanel.BackgroundTransparency=0.05; ppanel.BorderSizePixel=0; ppanel.ZIndex=12; ppanel.Parent=pwrap
+    Instance.new("UICorner",ppanel).CornerRadius=UDim.new(0,8); mSt(ppanel,0.45)
+
+    -- hint label inside panel top-right
+    local phint=Instance.new("TextLabel"); phint.Size=UDim2.new(1,-INNER_PAD*2,0,10)
+    phint.Position=UDim2.new(0,INNER_PAD,0,2); phint.BackgroundTransparency=1
+    phint.Text="Click to apply  •  Set = save current speed  •  [+] to keybind"
+    phint.TextColor3=TH.dimText; phint.TextSize=6; phint.Font=Enum.Font.Gotham
+    phint.TextXAlignment=Enum.TextXAlignment.Left; phint.ZIndex=13; phint.Parent=ppanel
+
+    -- track which preset is "active" (last applied)
+    local activePresetIdx = nil
+
+    local presetBtns = {}
+    local presetKbBtns = {}
+
+    local function refreshPresetBtns()
+        for idx,p in ipairs(speedPresets) do
+            local btn = presetBtns[idx]
+            local lb  = p._labelTb
+            if btn and lb then
+                local isActive = activePresetIdx==idx
+                local hasSpeed = p.speed > 0
+                local labelTxt = hasSpeed and (tostring(p.speed).."x") or ("P"..idx)
+                lb.Text = labelTxt
+                if isActive then
+                    TweenService:Create(btn,TweenInfo.new(0.12),{BackgroundColor3=TH.toggleOn}):Play()
+                    TweenService:Create(lb,TweenInfo.new(0.12),{TextColor3=Color3.fromRGB(220,220,255)}):Play()
+                elseif hasSpeed then
+                    TweenService:Create(btn,TweenInfo.new(0.12),{BackgroundColor3=TH.btnBg}):Play()
+                    TweenService:Create(lb,TweenInfo.new(0.12),{TextColor3=TH.titleColor}):Play()
+                else
+                    TweenService:Create(btn,TweenInfo.new(0.12),{BackgroundColor3=Color3.fromRGB(20,20,36)}):Play()
+                    TweenService:Create(lb,TweenInfo.new(0.12),{TextColor3=TH.dimText}):Play()
+                end
+            end
+        end
+    end
+
+    for idx=1,NUM_PRESETS do
+        local p = speedPresets[idx]
+        local cellX = INNER_PAD + (idx-1)*(CELL_W+GAP)
+
+        -- ── Preset button + inline editable TextBox (row 1) ─────────────────
+        -- Structure: btn (background + click) → labelTb (display) → editBox (hidden TextBox)
+        local btn=Instance.new("Frame")
+        btn.Size=UDim2.new(0,CELL_W,0,26)
+        btn.Position=UDim2.new(0,cellX,0,14)
+        btn.BackgroundColor3=Color3.fromRGB(20,20,36)
+        btn.BorderSizePixel=0; btn.ZIndex=14; btn.Parent=ppanel
+        Instance.new("UICorner",btn).CornerRadius=UDim.new(0,5); mSt(btn,0.5)
+
+        -- visible label (shown when not editing)
+        local labelTb=Instance.new("TextLabel")
+        labelTb.Size=UDim2.new(1,0,1,0); labelTb.Position=UDim2.new(0,0,0,0)
+        labelTb.BackgroundTransparency=1; labelTb.Text="P"..idx
+        labelTb.TextColor3=TH.dimText; labelTb.TextSize=8; labelTb.Font=Enum.Font.GothamBold
+        labelTb.ZIndex=16; labelTb.Parent=btn
+
+        -- edit TextBox (shown on double-click, hidden otherwise)
+        local editBox=Instance.new("TextBox")
+        editBox.Size=UDim2.new(1,-4,1,-4); editBox.Position=UDim2.new(0,2,0,2)
+        editBox.BackgroundColor3=Color3.fromRGB(30,30,55); editBox.BackgroundTransparency=0
+        editBox.Text=""; editBox.PlaceholderText="0.0"
+        editBox.PlaceholderColor3=TH.dimText
+        editBox.TextColor3=TH.titleColor; editBox.TextSize=8; editBox.Font=Enum.Font.GothamBold
+        editBox.TextXAlignment=Enum.TextXAlignment.Center
+        editBox.BorderSizePixel=0; editBox.ZIndex=17; editBox.ClearTextOnFocus=true
+        editBox.Visible=false; editBox.Parent=btn
+        Instance.new("UICorner",editBox).CornerRadius=UDim.new(0,4)
+
+        -- invisible hit button on top for single/double click detection
+        local hitBtn=Instance.new("TextButton")
+        hitBtn.Size=UDim2.new(1,0,1,0); hitBtn.BackgroundTransparency=1; hitBtn.Text=""
+        hitBtn.BorderSizePixel=0; hitBtn.ZIndex=18; hitBtn.AutoButtonColor=false; hitBtn.Parent=btn
+
+        presetBtns[idx]=btn  -- store frame ref; refreshPresetBtns will update labelTb
+
+        -- keep a ref to labelTb so refreshPresetBtns can update it
+        speedPresets[idx]._labelTb=labelTb
+
+        local lastClickTime=0
+        local editingPreset=false
+
+        local function commitEdit()
+            if not editingPreset then return end
+            editingPreset=false
+            editBox.Visible=false; labelTb.Visible=true
+            local val=tonumber(editBox.Text)
+            if val then
+                val=math.clamp(math.floor(val*10+0.5)/10, 0, SPEED_MAX)
+                speedPresets[idx].speed=val
+                task.defer(savePresets)
+                refreshPresetBtns()
+            end
+        end
+
+        local function startEdit()
+            editingPreset=true
+            local cur=speedPresets[idx].speed
+            editBox.Text=cur>0 and tostring(cur) or ""
+            labelTb.Visible=false; editBox.Visible=true
+            editBox:CaptureFocus()
+        end
+
+        editBox.FocusLost:Connect(function(enterPressed)
+            commitEdit()
+        end)
+
+        hitBtn.MouseEnter:Connect(function()
+            if activePresetIdx~=idx then
+                TweenService:Create(btn,TweenInfo.new(0.1),{BackgroundColor3=TH.btnHover}):Play()
+            end
+        end)
+        hitBtn.MouseLeave:Connect(function()
+            if activePresetIdx~=idx then
+                local hasSpeed=speedPresets[idx].speed>0
+                TweenService:Create(btn,TweenInfo.new(0.1),{
+                    BackgroundColor3=hasSpeed and TH.btnBg or Color3.fromRGB(20,20,36)
+                }):Play()
+            end
+        end)
+        hitBtn.MouseButton1Click:Connect(function()
+            local now=tick()
+            local dt=now-lastClickTime
+            lastClickTime=now
+            if dt<0.35 then
+                -- double-click: open edit box
+                startEdit()
+                return
+            end
+            -- single click: apply / set speed
+            if activePresetIdx==idx then
+                speedPresets[idx].speed=curSpeed
+                savedActivePreset=idx
+                task.defer(savePresets)
+                refreshPresetBtns()
+            else
+                if speedPresets[idx].speed>0 then
+                    applySpeed(speedPresets[idx].speed, true)
+                    activePresetIdx=idx; savedActivePreset=idx
+                    refreshPresetBtns()
+                else
+                    speedPresets[idx].speed=curSpeed
+                    activePresetIdx=idx; savedActivePreset=idx
+                    task.defer(savePresets)
+                    refreshPresetBtns()
+                end
+            end
+        end)
+
+        -- ── Keybind button (row 2) ────────────────────────────────────────────
+        local kbBtn=Instance.new("TextButton")
+        kbBtn.Size=UDim2.new(0,CELL_W,0,22)
+        kbBtn.Position=UDim2.new(0,cellX,0,46)
+        kbBtn.BackgroundColor3=TH.btnBg; kbBtn.Text="[+]"
+        kbBtn.TextColor3=TH.dimText; kbBtn.TextSize=6; kbBtn.Font=Enum.Font.GothamBold
+        kbBtn.BorderSizePixel=0; kbBtn.ZIndex=14; kbBtn.AutoButtonColor=false; kbBtn.Parent=ppanel
+        Instance.new("UICorner",kbBtn).CornerRadius=UDim.new(0,4); mSt(kbBtn,0.6)
+        presetKbBtns[idx]=kbBtn
+
+        local boundKey=nil; local listening=false
+        local function kbRefresh()
+            if boundKey then
+                kbBtn.BackgroundColor3=TH.toggleOn; kbBtn.TextColor3=Color3.fromRGB(220,220,255)
+                kbBtn.Text=boundKey.Name:sub(1,4)
+            else
+                kbBtn.BackgroundColor3=TH.btnBg; kbBtn.TextColor3=TH.dimText; kbBtn.Text="[+]"
+            end
+        end
+        local function getKey() return boundKey end
+        local function setKey(kc) boundKey=kc; kbRefresh() end
+        speedPresets[idx]._getKey=getKey
+        speedPresets[idx]._setKey=setKey
+
+        kbBtn.MouseEnter:Connect(function()
+            if not listening then TweenService:Create(kbBtn,TweenInfo.new(0.1),{BackgroundColor3=boundKey and TH.toggleOn or TH.btnHover}):Play() end
+        end)
+        kbBtn.MouseLeave:Connect(function()
+            if not listening then TweenService:Create(kbBtn,TweenInfo.new(0.1),{BackgroundColor3=boundKey and TH.toggleOn or TH.btnBg}):Play() end
+        end)
+        kbBtn.MouseButton1Click:Connect(function()
+            if listening then return end
+            if boundKey then boundKey=nil; kbRefresh(); task.defer(savePresets); return end
+            listening=true; bindingActive=true; kbBtn.Text="..."; kbBtn.TextColor3=TH.titleColor
+            TweenService:Create(kbBtn,TweenInfo.new(0.1),{BackgroundColor3=TH.btnHover}):Play()
+            local conn
+            conn=UserInputService.InputBegan:Connect(function(inp,proc)
+                if proc then return end
+                if inp.UserInputType==Enum.UserInputType.Keyboard then
+                    boundKey=inp.KeyCode; justBoundKey=inp.KeyCode
+                    listening=false; bindingActive=false; conn:Disconnect(); kbRefresh()
+                    task.defer(savePresets)
+                end
+            end)
+        end)
+    end
+
+    -- apply any loaded preset keybinds and restore active preset + speed
+    task.defer(function()
+        for i,keyName in pairs(pendingPresetKeys) do
+            local kc=Enum.KeyCode[keyName]
+            if kc and speedPresets[i] and speedPresets[i]._setKey then
+                speedPresets[i]._setKey(kc)
+            end
+        end
+        -- restore last active preset
+        if savedActivePreset and speedPresets[savedActivePreset] and speedPresets[savedActivePreset].speed > 0 then
+            activePresetIdx = savedActivePreset
+            applySpeed(speedPresets[savedActivePreset].speed, true)
+        end
+        refreshPresetBtns()
+    end)
+
+    -- wire preset keybind dispatch into the global keybind handler
+    -- (done after kbBeg is defined — injected via a separate connection below)
+    _G._dawlatulPresetCheck=function(key)
+        for idx,p in ipairs(speedPresets) do
+            if p._getKey and p._getKey()==key then
+                if p.speed>0 then
+                    applySpeed(p.speed, true)
+                    activePresetIdx=idx; savedActivePreset=idx
+                    task.defer(savePresets)
+                    refreshPresetBtns()
+                end
+                return true
+            end
+        end
+        return false
+    end
+    -- deselect active preset highlight when slider is moved manually
+    _G._dawlatulPresetDeselect=function()
+        if activePresetIdx then
+            activePresetIdx=nil; savedActivePreset=nil
+            task.defer(savePresets)
+            refreshPresetBtns()
+        end
+    end
 end
 
 makeSep()
@@ -3166,6 +3481,9 @@ local kbBeg=UserInputService.InputBegan:Connect(function(inp,gp)
     if inp.UserInputType~=Enum.UserInputType.Keyboard then return end
     local key=inp.KeyCode
     if justBoundKey and key==justBoundKey then return end
+    -- check speed preset keybinds first
+    if _G._dawlatulPresetCheck and _G._dawlatulPresetCheck(key) then return end
+    -- then animation keybinds
     for _,anim in ipairs(animDB) do
         if anim._getKey and anim._getKey()==key then
             if anim.url~="" then task.spawn(function() API.play_animation(anim.url) end) end
