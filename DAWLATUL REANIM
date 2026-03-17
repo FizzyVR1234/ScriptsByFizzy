@@ -2680,17 +2680,16 @@ end
 --  4. SPEED PRESETS
 -- ══════════════════════════════════════════════════════════════════════════════
 do
-    -- Panel sizing
-    -- Row 1: 5 preset pills  height=26
-    -- Row 2: 5 keybind btns  height=22
-    -- padding top/bottom=8, gap between rows=6
-    -- total panel height = 8 + 26 + 6 + 22 + 8 = 70
-    local PRESET_PANEL_H = 70
+    -- Panel sizing (no hint row)
+    -- top pad=8, preset row=28 at y=8, gap=6, kb row=22 at y=42, bottom pad=8
+    -- total panel height = 8 + 28 + 6 + 22 + 8 = 72
+    local PRESET_PANEL_H = 72
     local NUM_PRESETS    = 5
-    local INNER_PAD      = 8   -- left+right padding inside panel
-    local GAP            = 4   -- gap between preset cells
+    local INNER_PAD      = 10  -- left+right edge spacing inside panel
+    local GAP            = 5   -- gap between preset cells
     local PANEL_W        = CARD_W - 20  -- 290px
-    local CELL_W         = math.floor((PANEL_W - INNER_PAD*2 - GAP*(NUM_PRESETS-1)) / NUM_PRESETS)  -- 50px each
+    -- CELL_W = floor((290 - 10*2 - 5*4) / 5) = floor((290-20-20)/5) = floor(250/5) = 50
+    local CELL_W         = math.floor((PANEL_W - INNER_PAD*2 - GAP*(NUM_PRESETS-1)) / NUM_PRESETS)
 
     -- section label
     makeSectionLabel("SPEED PRESETS")
@@ -2701,13 +2700,6 @@ do
     ppanel.Position=UDim2.new(0,10,0,3); ppanel.BackgroundColor3=Color3.fromRGB(18,18,30)
     ppanel.BackgroundTransparency=0.05; ppanel.BorderSizePixel=0; ppanel.ZIndex=12; ppanel.Parent=pwrap
     Instance.new("UICorner",ppanel).CornerRadius=UDim.new(0,8); mSt(ppanel,0.45)
-
-    -- hint label inside panel top-right
-    local phint=Instance.new("TextLabel"); phint.Size=UDim2.new(1,-INNER_PAD*2,0,10)
-    phint.Position=UDim2.new(0,INNER_PAD,0,2); phint.BackgroundTransparency=1
-    phint.Text="Click to apply  •  Set = save current speed  •  [+] to keybind"
-    phint.TextColor3=TH.dimText; phint.TextSize=6; phint.Font=Enum.Font.Gotham
-    phint.TextXAlignment=Enum.TextXAlignment.Left; phint.ZIndex=13; phint.Parent=ppanel
 
     -- track which preset is "active" (last applied)
     local activePresetIdx = nil
@@ -2745,8 +2737,8 @@ do
         -- ── Preset button + inline editable TextBox (row 1) ─────────────────
         -- Structure: btn (background + click) → labelTb (display) → editBox (hidden TextBox)
         local btn=Instance.new("Frame")
-        btn.Size=UDim2.new(0,CELL_W,0,26)
-        btn.Position=UDim2.new(0,cellX,0,14)
+        btn.Size=UDim2.new(0,CELL_W,0,28)
+        btn.Position=UDim2.new(0,cellX,0,8)
         btn.BackgroundColor3=Color3.fromRGB(20,20,36)
         btn.BorderSizePixel=0; btn.ZIndex=14; btn.Parent=ppanel
         Instance.new("UICorner",btn).CornerRadius=UDim.new(0,5); mSt(btn,0.5)
@@ -2853,7 +2845,7 @@ do
         -- ── Keybind button (row 2) ────────────────────────────────────────────
         local kbBtn=Instance.new("TextButton")
         kbBtn.Size=UDim2.new(0,CELL_W,0,22)
-        kbBtn.Position=UDim2.new(0,cellX,0,46)
+        kbBtn.Position=UDim2.new(0,cellX,0,42)
         kbBtn.BackgroundColor3=TH.btnBg; kbBtn.Text="[+]"
         kbBtn.TextColor3=TH.dimText; kbBtn.TextSize=6; kbBtn.Font=Enum.Font.GothamBold
         kbBtn.BorderSizePixel=0; kbBtn.ZIndex=14; kbBtn.AutoButtonColor=false; kbBtn.Parent=ppanel
