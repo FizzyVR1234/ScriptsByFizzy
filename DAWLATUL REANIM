@@ -155,7 +155,6 @@ local function freeze_all_guis(player)
             g.ResetOnSpawn=false
         end
     end
-    -- also freeze any guis added during the swap (poll once after)
     return snapshot
 end
 local function restore_all_guis(player, snapshot)
@@ -166,13 +165,11 @@ local function restore_all_guis(player, snapshot)
             if snapshot[g]~=nil then
                 g.ResetOnSpawn=snapshot[g]
             end
-            -- any gui not in snapshot was added during swap — leave it alone
         end
     end
 end
 local function safe_set_character(player, newChar)
     local snapshot=freeze_all_guis(player)
-    -- small yield so Roblox processes the freeze before the swap
     task.wait()
     local ok=pcall(function() player.Character=newChar end)
     task.wait()
@@ -194,7 +191,6 @@ API.reanimate = function(bool,remote,args)
         local cl=clone_char(rc); if typeof(cl)=="string" then return end
         if not cl:FindFirstChild("Humanoid") then return end
         dawlatul.clones[player]=cl; set_transparency(cl,1)
-        -- swap to clone without wiping any other script's GUI
         safe_set_character(player, cl)
         cl:WaitForChild("Animate").Disabled=true; cl:WaitForChild("Animate").Disabled=false
         dawlatul.connections.hb=RunService.Heartbeat:Connect(function()
@@ -213,8 +209,6 @@ API.reanimate = function(bool,remote,args)
             local crh=rc and rc:FindFirstChild("Humanoid")
             if crh and crh.Health>0 then crh.Health=0 else API.reanimate(false,remote,args) end
         end)
-        -- CharacterRemoving: only trigger off when the REAL char is removed (i.e. server reset)
-        -- Ignore removal of the clone since we placed it ourselves
         dawlatul.connections.cr=player.CharacterRemoving:Connect(function(cbr)
             if cbr==rc then API.reanimate(false,remote,args) end
         end)
@@ -232,7 +226,6 @@ API.reanimate = function(bool,remote,args)
             local rcHum=rc:FindFirstChildWhichIsA("Humanoid")
             local cam=dawlatul.services.workspace.CurrentCamera
             if rcHum and cam then cam.CameraSubject=rcHum end
-            -- swap back to real char without wiping any other script's GUI
             safe_set_character(player, rc)
         end
         dawlatul.real_chars[player]=nil
@@ -2192,6 +2185,11 @@ local currentTab = "All"
 local searchQuery= ""
 local customCtr  = 0
 
+-- ── FIX 1: Animation click cooldown (0.7 seconds) ────────────────────────────
+local lastAnimPlayTime = 0
+local ANIM_COOLDOWN    = 0.1
+-- ─────────────────────────────────────────────────────────────────────────────
+
 -- ══════════════════════════════════════════════════════════════════════════════
 --  PERSISTENCE
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -2266,7 +2264,6 @@ local function applyPendingKeybinds()
     end
 end
 
--- Speed preset state: 5 presets, each has a speed value (0=unset) and an optional keybind
 local speedPresets = {
     {speed=0, key=nil, _getKey=nil, _setKey=nil},
     {speed=0, key=nil, _getKey=nil, _setKey=nil},
@@ -2274,10 +2271,9 @@ local speedPresets = {
     {speed=0, key=nil, _getKey=nil, _setKey=nil},
     {speed=0, key=nil, _getKey=nil, _setKey=nil},
 }
-local savedActivePreset = nil  -- persisted active preset index (1-5 or nil)
+local savedActivePreset = nil
 local function savePresets()
     local lines={}
-    -- first line: active preset index (0 = none)
     lines[#lines+1]=tostring(savedActivePreset or 0)
     for i,p in ipairs(speedPresets) do
         local keyName = p._getKey and p._getKey() and p._getKey().Name or ""
@@ -2291,11 +2287,9 @@ local function loadPresets()
     local lines={}
     for line in data:gmatch("[^\n]+") do lines[#lines+1]=line end
     if #lines==0 then return end
-    -- check if first line is the active preset header (no | separator = just a number)
     local lineStart = 1
     local firstLine = lines[1]
     if not firstLine:find("|") then
-        -- new format: first line is active preset index
         local ap = tonumber(firstLine)
         if ap and ap >= 1 and ap <= 5 then
             savedActivePreset = ap
@@ -2304,7 +2298,6 @@ local function loadPresets()
         end
         lineStart = 2
     end
-    -- read preset entries
     for idx = lineStart, #lines do
         local i = idx - lineStart + 1
         local line = lines[idx]
@@ -2398,8 +2391,6 @@ body.ElasticBehavior=Enum.ElasticBehavior.Never; body.ZIndex=10; body.Parent=car
 do local l=Instance.new("UIListLayout"); l.FillDirection=Enum.FillDirection.Vertical
    l.SortOrder=Enum.SortOrder.LayoutOrder; l.Padding=UDim.new(0,0); l.Parent=body
    local p=Instance.new("UIPadding"); p.PaddingTop=UDim.new(0,6); p.PaddingBottom=UDim.new(0,10); p.Parent=body end
-
-
 
 local minimized=false
 local MIN_TWEEN=TweenInfo.new(0.25,Enum.EasingStyle.Quart,Enum.EasingDirection.Out)
@@ -2509,9 +2500,8 @@ iconBox.Size=UDim2.new(0,40,0,40); iconBox.BackgroundColor3=TH.iconBg
 iconBox.BorderSizePixel=0; iconBox.ZIndex=12; iconBox.Parent=titleRow
 Instance.new("UICorner",iconBox).CornerRadius=UDim.new(0,9)
 do local s=Instance.new("UIStroke"); s.Color=TH.stroke; s.Thickness=1; s.Transparency=0.5; s.Parent=iconBox end
--- CHANGE: emoji icon in the profile box
 local iconLbl=Instance.new("TextLabel")
-iconLbl.Text="🎭"; iconLbl.Size=UDim2.new(1,0,1,0); iconLbl.BackgroundTransparency=1
+iconLbl.Text="🤖"; iconLbl.Size=UDim2.new(1,0,1,0); iconLbl.BackgroundTransparency=1
 iconLbl.TextColor3=TH.iconColor; iconLbl.TextScaled=true
 iconLbl.Font=Enum.Font.GothamBold; iconLbl.ZIndex=13; iconLbl.Parent=iconBox
 local textBlock=Instance.new("Frame")
@@ -2652,7 +2642,6 @@ do
         local a=s2a(s)
         fill.Size=UDim2.new(a,0,1,0); knobRing.Position=UDim2.new(a,0,0.5,0)
         speedValueLabel.Text=tostring(s).."x"
-        -- deselect active preset highlight when speed is changed manually (not from preset)
         if not fromPreset and _G._dawlatulPresetDeselect then _G._dawlatulPresetDeselect() end
     end
     applySpeed(DEFAULT_SPEED)
@@ -2680,18 +2669,13 @@ end
 --  4. SPEED PRESETS
 -- ══════════════════════════════════════════════════════════════════════════════
 do
-    -- Panel sizing (no hint row)
-    -- top pad=8, preset row=28 at y=8, gap=6, kb row=22 at y=42, bottom pad=8
-    -- total panel height = 8 + 28 + 6 + 22 + 8 = 72
     local PRESET_PANEL_H = 72
     local NUM_PRESETS    = 5
-    local INNER_PAD      = 10  -- left+right edge spacing inside panel
-    local GAP            = 5   -- gap between preset cells
-    local PANEL_W        = CARD_W - 20  -- 290px
-    -- CELL_W = floor((290 - 10*2 - 5*4) / 5) = floor((290-20-20)/5) = floor(250/5) = 50
+    local INNER_PAD      = 10
+    local GAP            = 5
+    local PANEL_W        = CARD_W - 20
     local CELL_W         = math.floor((PANEL_W - INNER_PAD*2 - GAP*(NUM_PRESETS-1)) / NUM_PRESETS)
 
-    -- section label
     makeSectionLabel("SPEED PRESETS")
 
     local pwrap=Instance.new("Frame"); pwrap.Size=UDim2.new(1,0,0,PRESET_PANEL_H+6)
@@ -2701,9 +2685,7 @@ do
     ppanel.BackgroundTransparency=0.05; ppanel.BorderSizePixel=0; ppanel.ZIndex=12; ppanel.Parent=pwrap
     Instance.new("UICorner",ppanel).CornerRadius=UDim.new(0,8); mSt(ppanel,0.45)
 
-    -- track which preset is "active" (last applied)
     local activePresetIdx = nil
-
     local presetBtns = {}
     local presetKbBtns = {}
 
@@ -2734,8 +2716,6 @@ do
         local p = speedPresets[idx]
         local cellX = INNER_PAD + (idx-1)*(CELL_W+GAP)
 
-        -- ── Preset button + inline editable TextBox (row 1) ─────────────────
-        -- Structure: btn (background + click) → labelTb (display) → editBox (hidden TextBox)
         local btn=Instance.new("Frame")
         btn.Size=UDim2.new(0,CELL_W,0,28)
         btn.Position=UDim2.new(0,cellX,0,8)
@@ -2743,14 +2723,12 @@ do
         btn.BorderSizePixel=0; btn.ZIndex=14; btn.Parent=ppanel
         Instance.new("UICorner",btn).CornerRadius=UDim.new(0,5); mSt(btn,0.5)
 
-        -- visible label (shown when not editing)
         local labelTb=Instance.new("TextLabel")
         labelTb.Size=UDim2.new(1,0,1,0); labelTb.Position=UDim2.new(0,0,0,0)
         labelTb.BackgroundTransparency=1; labelTb.Text="P"..idx
         labelTb.TextColor3=TH.dimText; labelTb.TextSize=8; labelTb.Font=Enum.Font.GothamBold
         labelTb.ZIndex=16; labelTb.Parent=btn
 
-        -- edit TextBox (shown on double-click, hidden otherwise)
         local editBox=Instance.new("TextBox")
         editBox.Size=UDim2.new(1,-4,1,-4); editBox.Position=UDim2.new(0,2,0,2)
         editBox.BackgroundColor3=Color3.fromRGB(30,30,55); editBox.BackgroundTransparency=0
@@ -2762,14 +2740,11 @@ do
         editBox.Visible=false; editBox.Parent=btn
         Instance.new("UICorner",editBox).CornerRadius=UDim.new(0,4)
 
-        -- invisible hit button on top for single/double click detection
         local hitBtn=Instance.new("TextButton")
         hitBtn.Size=UDim2.new(1,0,1,0); hitBtn.BackgroundTransparency=1; hitBtn.Text=""
         hitBtn.BorderSizePixel=0; hitBtn.ZIndex=18; hitBtn.AutoButtonColor=false; hitBtn.Parent=btn
 
-        presetBtns[idx]=btn  -- store frame ref; refreshPresetBtns will update labelTb
-
-        -- keep a ref to labelTb so refreshPresetBtns can update it
+        presetBtns[idx]=btn
         speedPresets[idx]._labelTb=labelTb
 
         local lastClickTime=0
@@ -2818,11 +2793,9 @@ do
             local dt=now-lastClickTime
             lastClickTime=now
             if dt<0.35 then
-                -- double-click: open edit box
                 startEdit()
                 return
             end
-            -- single click: apply / set speed
             if activePresetIdx==idx then
                 speedPresets[idx].speed=curSpeed
                 savedActivePreset=idx
@@ -2842,7 +2815,6 @@ do
             end
         end)
 
-        -- ── Keybind button (row 2) ────────────────────────────────────────────
         local kbBtn=Instance.new("TextButton")
         kbBtn.Size=UDim2.new(0,CELL_W,0,22)
         kbBtn.Position=UDim2.new(0,cellX,0,42)
@@ -2889,7 +2861,6 @@ do
         end)
     end
 
-    -- apply any loaded preset keybinds and restore active preset + speed
     task.defer(function()
         for i,keyName in pairs(pendingPresetKeys) do
             local kc=Enum.KeyCode[keyName]
@@ -2897,7 +2868,6 @@ do
                 speedPresets[i]._setKey(kc)
             end
         end
-        -- restore last active preset
         if savedActivePreset and speedPresets[savedActivePreset] and speedPresets[savedActivePreset].speed > 0 then
             activePresetIdx = savedActivePreset
             applySpeed(speedPresets[savedActivePreset].speed, true)
@@ -2905,8 +2875,6 @@ do
         refreshPresetBtns()
     end)
 
-    -- wire preset keybind dispatch into the global keybind handler
-    -- (done after kbBeg is defined — injected via a separate connection below)
     _G._dawlatulPresetCheck=function(key)
         for idx,p in ipairs(speedPresets) do
             if p._getKey and p._getKey()==key then
@@ -2921,7 +2889,6 @@ do
         end
         return false
     end
-    -- deselect active preset highlight when slider is moved manually
     _G._dawlatulPresetDeselect=function()
         if activePresetIdx then
             activePresetIdx=nil; savedActivePreset=nil
@@ -2957,7 +2924,6 @@ do
     tl.HorizontalAlignment=Enum.HorizontalAlignment.Center
     tl.Padding=UDim.new(0,GAP); tl.Parent=bg
 
-    -- CHANGE: emoji icons in tab labels
     local labels={"🎬 All","⭐ Favs","✏️ Custom"}
     local labelKeys={"All","Favs","Custom"}
     for idx,lbl in ipairs(labels) do
@@ -3013,7 +2979,7 @@ do
     local function updateSearchUI()
         local focused = searchBox:IsFocused()
         local hasText = searchBox.Text~=""
-        searchIcon.Visible = true  -- always show the emoji
+        searchIcon.Visible = true
         searchPlaceholder.Visible = not focused and not hasText
     end
     searchBox.Focused:Connect(updateSearchUI)
@@ -3031,6 +2997,16 @@ local listOuter=Instance.new("Frame"); listOuter.Size=UDim2.new(1,-20,0,LIST_H)
 listOuter.Position=UDim2.new(0,10,0,2); listOuter.BackgroundColor3=Color3.fromRGB(12,12,20)
 listOuter.BorderSizePixel=0; listOuter.ZIndex=12; listOuter.ClipsDescendants=true; listOuter.Parent=listAreaWrap
 Instance.new("UICorner",listOuter).CornerRadius=UDim.new(0,8); mSt(listOuter,0.5)
+
+-- ── FIX 2: Scroll isolation — disable outer body scroll when mouse is over the list ──
+-- This prevents the outer card from scrolling while you scroll through animations.
+listOuter.MouseEnter:Connect(function()
+    body.ScrollingEnabled = false
+end)
+listOuter.MouseLeave:Connect(function()
+    body.ScrollingEnabled = true
+end)
+-- ─────────────────────────────────────────────────────────────────────────────
 
 local listFrame=Instance.new("ScrollingFrame"); listFrame.Size=UDim2.new(1,0,1,0)
 listFrame.CanvasSize=UDim2.new(0,0,0,0); listFrame.AutomaticCanvasSize=Enum.AutomaticSize.Y
@@ -3167,20 +3143,8 @@ confirmBtn.MouseLeave:Connect(function() TweenService:Create(confirmBtn,TweenInf
 
 local formOpen=false
 local FORM_TWEEN=TweenInfo.new(0.2,Enum.EasingStyle.Quart,Enum.EasingDirection.Out)
-local function setFormOpen(open)
-    formOpen=open
-    local targetH=open and FORM_H_OPEN or FORM_H_CLOSED
-    TweenService:Create(addFormWrap,FORM_TWEEN,{Size=UDim2.new(1,0,0,targetH)}):Play()
-    if not open then
-        nameIn.Text=""; codeIn.Text=""
-    end
-    -- show "no custom animations" only when form is closed and list is empty
-    emptyCustomLbl.Visible=not open and (#customRows==0)
-end
-addHeaderBtn.MouseButton1Click:Connect(function() setFormOpen(not formOpen) end)
-cancelBtn.MouseButton1Click:Connect(function() setFormOpen(false) end)
 
--- empty-custom label
+-- empty-custom label — declared before setFormOpen so it can reference it
 local emptyCustomLbl=Instance.new("Frame"); emptyCustomLbl.Size=UDim2.new(1,0,0,36)
 emptyCustomLbl.BackgroundTransparency=1; emptyCustomLbl.ZIndex=14; emptyCustomLbl.LayoutOrder=999999
 emptyCustomLbl.Visible=false; emptyCustomLbl.Parent=customPanel
@@ -3189,60 +3153,66 @@ emptyCustomTxt.BackgroundTransparency=1; emptyCustomTxt.TextColor3=TH.dimText; e
 emptyCustomTxt.Font=Enum.Font.Gotham; emptyCustomTxt.ZIndex=15
 emptyCustomTxt.Text="No custom animations yet"; emptyCustomTxt.Parent=emptyCustomLbl
 
--- ══════════════════════════════════════════════════════════════════════════════
---  BUILD ALL ROWS  (no-lag rewrite)
---  • Normal anims  → listFrame
---  • Custom anims  → customPanel (after the add-header + form)
---  • addSingleRow: adds ONE row directly, used by confirm-add for zero rebuild
---  • removeCustomAnim: destroys just that one row, no full rebuild
--- ══════════════════════════════════════════════════════════════════════════════
-local allRows    = {}   -- {frame, anim, accent, nLbl}
-local customRows = {}   -- same, for custom-tagged anims
+-- customRows forward-declared so setFormOpen can reference it
+local customRows = {}
 
--- forward declarations so lambdas can reference them
+-- ── FIX 3: setFormOpen hides/shows animation rows while the form is open ──────
+local function setFormOpen(open)
+    formOpen=open
+    local targetH=open and FORM_H_OPEN or FORM_H_CLOSED
+    TweenService:Create(addFormWrap,FORM_TWEEN,{Size=UDim2.new(1,0,0,targetH)}):Play()
+    if not open then
+        nameIn.Text=""; codeIn.Text=""
+    end
+    -- Hide all custom animation rows while the form is open so only the form
+    -- is visible; restore them when the form closes.
+    for _,e in ipairs(customRows) do
+        e.frame.Visible = not open
+    end
+    -- Only show "no custom animations" when: form is closed AND list is truly empty
+    emptyCustomLbl.Visible = not open and (#customRows == 0)
+end
+-- ─────────────────────────────────────────────────────────────────────────────
+
+addHeaderBtn.MouseButton1Click:Connect(function() setFormOpen(not formOpen) end)
+cancelBtn.MouseButton1Click:Connect(function() setFormOpen(false) end)
+
+-- ══════════════════════════════════════════════════════════════════════════════
+--  BUILD ALL ROWS
+-- ══════════════════════════════════════════════════════════════════════════════
+local allRows = {}
+-- customRows already declared above for setFormOpen
+
 local buildAllRows, refreshList
 
--- ── helper: create one row frame and wire it up ───────────────────────────────
---
---  Row pixel layout (row width = CARD_W - 20 = 290px):
---  Normal:  [2 accent][4 gap][★ 20px][4 gap][name label ... ][4 gap][keybind 30px][4 gap right]
---  Custom:  [2 accent][4 gap][★ 20px][4 gap][name label ... ][4 gap][keybind 30px][8 gap][✕ 14px][2 gap right]
---
---  Right-side totals:
---    Normal: 30kb + 4 + 4 = 38px from right  → keybind starts at -38
---    Custom: 14del + 2 + 30kb + 4 + 4 = 54px from right → keybind starts at -54, del at -16
---
 local function makeAnimRow(anim, i)
     local isCustom = anim.tag=="custom"
     local parent   = isCustom and customPanel or listFrame
 
-    -- pixel constants for right-side buttons
-    local DEL_W    = 14   -- ✕ width
-    local DEL_GAP  = 4    -- gap between keybind and ✕
-    local KB_W     = 30   -- keybind width
-    local KB_GAP   = 4    -- gap between name and keybind (and between keybind and right edge)
-    local STAR_W   = 20   -- star width
-    local STAR_X   = 6    -- star left offset from row edge (after accent)
-    local NAME_X   = STAR_X + STAR_W + 4  -- name label left start
+    local DEL_W    = 14
+    local DEL_GAP  = 4
+    local KB_W     = 30
+    local KB_GAP   = 4
+    local STAR_W   = 20
+    local STAR_X   = 6
+    local NAME_X   = STAR_X + STAR_W + 4
 
-    -- keybind right edge: leave room for ✕ + gap if custom, else just a small right pad
     local KB_RIGHT = isCustom and -(DEL_W + DEL_GAP + KB_GAP) or -(KB_GAP)
-    -- keybind left offset from right edge
     local KB_FROM_RIGHT = KB_W + math.abs(KB_RIGHT)
-    -- delete button right edge (custom only)
     local DEL_RIGHT = -2
 
     local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,ROW_H)
     row.BackgroundColor3=TH.listItem; row.BackgroundTransparency=0.2
     row.BorderSizePixel=0; row.ZIndex=14; row.LayoutOrder=isCustom and (100+i) or i
-    row.Visible=true; row.Parent=parent
+    -- FIX 3: custom rows start hidden when form is open
+    row.Visible = isCustom and (not formOpen) or true
+    row.Parent=parent
 
     local accent=Instance.new("Frame"); accent.Size=UDim2.new(0,2,0,ROW_H-8)
     accent.Position=UDim2.new(0,0,0.5,-(ROW_H-8)/2); accent.BackgroundColor3=TH.toggleOn
     accent.BackgroundTransparency=0.6; accent.BorderSizePixel=0; accent.ZIndex=15; accent.Parent=row
     Instance.new("UICorner",accent).CornerRadius=UDim.new(1,0)
 
-    -- ★ star on the LEFT side, after the accent bar
     local star=Instance.new("TextButton"); star.Size=UDim2.new(0,STAR_W,0,STAR_W)
     star.Position=UDim2.new(0,STAR_X,0.5,-STAR_W/2)
     star.BackgroundTransparency=1
@@ -3258,7 +3228,6 @@ local function makeAnimRow(anim, i)
         task.defer(saveFavorites)
     end)
 
-    -- name label: starts after star, ends before keybind
     local lblRightPad = isCustom and -(KB_FROM_RIGHT + DEL_W + DEL_GAP + 2) or -(KB_FROM_RIGHT + 2)
     local nLbl=Instance.new("TextLabel")
     nLbl.Size=UDim2.new(1,lblRightPad,1,0); nLbl.Position=UDim2.new(0,NAME_X,0,0)
@@ -3266,18 +3235,13 @@ local function makeAnimRow(anim, i)
     nLbl.Font=Enum.Font.GothamBold; nLbl.TextXAlignment=Enum.TextXAlignment.Left
     nLbl.TextTruncate=Enum.TextTruncate.AtEnd; nLbl.ZIndex=15; nLbl.Parent=row
 
-    -- keybind button on the right — compute absolute pixel X from left of row
-    -- ROW_W = CARD_W - 20 (the listOuter is inset 10px each side)
     local ROW_W = CARD_W - 20
-    -- right side space: for custom we need room for ✕(14) + gap(4) + kb_gap(4) = 22; normal just kb_gap(4)
     local kbRightSpace = isCustom and (DEL_W + DEL_GAP + KB_GAP) or KB_GAP
-    -- absolute left pixel of keybind button inside the row
     local kbAbsX = ROW_W - kbRightSpace - KB_W
     local kbAbsY = math.floor((ROW_H - (ROW_H-10)) / 2)
     local getKey,setKey=makeKeybindBtn(row, kbAbsX, kbAbsY, KB_W, ROW_H-10, 16)
     anim._getKey=getKey; anim._setKey=setKey; anim._row=row
 
-    -- ✕ delete button (custom only) — flush far right
     if isCustom then
         local delBtn=Instance.new("TextButton"); delBtn.Size=UDim2.new(0,DEL_W,0,ROW_H)
         delBtn.Position=UDim2.new(1,-DEL_W-2,0,0)
@@ -3304,7 +3268,6 @@ local function makeAnimRow(anim, i)
         end)
     end
 
-    -- invisible play hit-area — only covers name label area (left side), never over buttons
     local playRightEdge = isCustom and -(KB_FROM_RIGHT + DEL_W + DEL_GAP + 2) or -(KB_FROM_RIGHT + 2)
     local play=Instance.new("TextButton"); play.Size=UDim2.new(1,playRightEdge,1,0)
     play.Position=UDim2.new(0,NAME_X,0,0); play.BackgroundTransparency=1; play.Text=""
@@ -3331,9 +3294,14 @@ local function makeAnimRow(anim, i)
         local playing=curAnimUrl==anim.url
         TweenService:Create(row,TweenInfo.new(0.15),{BackgroundColor3=playing and TH.playingRow or TH.listHov,BackgroundTransparency=0}):Play()
     end)
+    -- ── FIX 1: 0.7s cooldown enforced here — shared across all rows ───────────
     play.MouseButton1Click:Connect(function()
+        local now = tick()
+        if now - lastAnimPlayTime < ANIM_COOLDOWN then return end
+        lastAnimPlayTime = now
         if anim.url~="" then task.spawn(function() API.play_animation(anim.url) end) end
     end)
+    -- ─────────────────────────────────────────────────────────────────────────
 
     local entry={frame=row,anim=anim,accent=accent,nLbl=nLbl}
     if isCustom then
@@ -3344,7 +3312,6 @@ local function makeAnimRow(anim, i)
     return entry
 end
 
--- full rebuild (called once on load, and when needed)
 buildAllRows = function()
     for _,e in ipairs(allRows)    do if e.frame and e.frame.Parent then e.frame:Destroy() end end
     for _,e in ipairs(customRows) do if e.frame and e.frame.Parent then e.frame:Destroy() end end
@@ -3356,7 +3323,7 @@ buildAllRows = function()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
---  CONFIRM ADD — no rebuild, just insert one row
+--  CONFIRM ADD
 -- ══════════════════════════════════════════════════════════════════════════════
 confirmBtn.MouseButton1Click:Connect(function()
     local nm=nameIn.Text:match("^%s*(.-)%s*$"); local code=codeIn.Text:match("^%s*(.-)%s*$")
@@ -3376,7 +3343,7 @@ confirmBtn.MouseButton1Click:Connect(function()
     local newAnim={n=nm,url=fu,fav=false,tag="custom"}
     animDB[#animDB+1]=newAnim
     makeAnimRow(newAnim, #animDB)
-    emptyCustomLbl.Visible=false -- form is open, never show while adding
+    emptyCustomLbl.Visible=false
 
     task.delay(0.8,function() setFormOpen(false) end)
     refreshList()
@@ -3392,8 +3359,11 @@ refreshList = function()
     listFrame.Visible=not isCustom
 
     if isCustom then
-        local anyCustom=#customRows>0
-        emptyCustomLbl.Visible=not anyCustom and not formOpen
+        -- FIX 3: when switching to Custom tab, respect current formOpen state
+        for _,e in ipairs(customRows) do
+            e.frame.Visible = not formOpen
+        end
+        emptyCustomLbl.Visible = not formOpen and (#customRows == 0)
         return
     end
 
@@ -3473,11 +3443,13 @@ local kbBeg=UserInputService.InputBegan:Connect(function(inp,gp)
     if inp.UserInputType~=Enum.UserInputType.Keyboard then return end
     local key=inp.KeyCode
     if justBoundKey and key==justBoundKey then return end
-    -- check speed preset keybinds first
     if _G._dawlatulPresetCheck and _G._dawlatulPresetCheck(key) then return end
-    -- then animation keybinds
     for _,anim in ipairs(animDB) do
         if anim._getKey and anim._getKey()==key then
+            -- FIX 1: also apply cooldown to keybind-triggered plays
+            local now = tick()
+            if now - lastAnimPlayTime < ANIM_COOLDOWN then return end
+            lastAnimPlayTime = now
             if anim.url~="" then task.spawn(function() API.play_animation(anim.url) end) end
             return
         end
@@ -3533,12 +3505,9 @@ function DawlatulUI.destroy()
     if ambConn then ambConn:Disconnect(); ambConn=nil end
     if gui and gui.Parent then gui:Destroy() end
 end
--- Guardian: if the GUI ever gets orphaned (e.g. CoreGui cleared), re-anchor it.
--- Only triggers on actual destroy (parent==nil), never on reparent.
 gui.AncestryChanged:Connect(function(_, newParent)
     if _destroyed then return end
     if not newParent then
-        -- something yanked it out — put it back
         task.defer(function()
             if not _destroyed and gui and not gui.Parent then
                 pcall(function() gui.Parent=CoreGui end)
